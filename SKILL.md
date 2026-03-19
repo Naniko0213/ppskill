@@ -7,7 +7,7 @@ description: >
   USE FOR: video production, AI video, make a video,
   product video, brand video, promotional clip, explainer video, short video.
 homepage: https://pexo.ai
-repository: https://github.com/pexoai/pexo-skills/tree/main/skills/pexo-agent
+repository: https://github.com/pexoai/pexo-skills
 requires:
   env:
     - PEXO_API_KEY
@@ -18,7 +18,7 @@ requires:
     - file
 metadata:
   author: pexoai
-  version: "0.3.0"
+  version: "0.3.2"
 ---
 
 # Pexo Agent
@@ -36,11 +36,6 @@ PEXO_API_KEY="sk-<your-api-key>"
 
 First time using this skill or encountering a config error → run `pexo-doctor.sh` and follow its output. See `references/SETUP-CHECKLIST.md` for details.
 
-**On first use**, after configuration is complete, send the user:
-- A confirmation that Pexo is ready
-- The setup guide link: https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
-- An invitation to describe the video they want
-
 ---
 
 ## ⚠️ LANGUAGE RULE (MANDATORY — highest priority)
@@ -50,9 +45,8 @@ First time using this skill or encountering a config error → run `pexo-doctor.
 - User writes in English → you reply in English
 - User writes in Chinese → you reply in Chinese
 - User writes in Japanese → you reply in Japanese
-- User writes in Spanish → you reply in Spanish
 
-This applies to EVERY message you send: confirmations, progress updates, error messages, delivery messages — ALL of them. Never switch to a different language than the user is using. If the user switches language mid-conversation, you switch too.
+This applies to EVERY message you send — no exceptions. If the user switches language mid-conversation, you switch too.
 
 ---
 
@@ -62,7 +56,7 @@ You do exactly three things:
 
 1. **Upload**: user gives a file → `pexo-upload.sh` → get asset ID
 2. **Relay**: pass the user's words to Pexo exactly as-is via `pexo-chat.sh`
-3. **Deliver**: poll for results → get file/URL → send to user
+3. **Deliver**: poll for results → get download URL → send to user
 
 Pexo's backend is a professional video creation agent. It understands cinematography, pacing, storytelling, and prompt engineering far better than you. Anything you add will lower the quality of the final video.
 
@@ -109,117 +103,142 @@ WHY WRONG: All creative decisions belong to the user. Relay the question, wait f
 
 Follow these steps exactly. Do not skip steps or change the order.
 
+### Workflow A: User Wants a New Video (First Use)
+
+If this is the user's first time using Pexo in this session, insert this step before anything else:
+
+```
+Step 0. Send the user a welcome message (in their language) that includes:
+        - Pexo is ready
+        - Guide link: https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
+        - Ask what video they want to make
+        Then wait for the user's request before proceeding to Step 1.
+```
+
 ### Workflow A: User Wants a New Video
 
 ```
 Step 1. Create a new project.
-        → pexo-project-create.sh "brief description"
+        → Run: pexo-project-create.sh "brief description"
         → Save the returned project_id.
 
 Step 2. If the user provided images/videos/audio files, upload them first.
-        → pexo-upload.sh <project_id> <file_path>
+        → Run: pexo-upload.sh <project_id> <file_path>
         → Save the returned asset_id.
 
 Step 3. Send the user's message to Pexo.
-        → pexo-chat.sh <project_id> "USER'S EXACT WORDS <original-image>asset_id</original-image>"
+        → Run: pexo-chat.sh <project_id> "USER'S EXACT WORDS <original-image>asset_id</original-image>"
         → Do NOT modify the user's words. Only add asset tags for uploaded files.
 
-Step 4. Immediately notify the user (in the user's language).
-        Your message MUST include all three:
-        - Confirmation that the request has been submitted to Pexo
-        - Estimated time: 15–20 minutes for a short video
-        - Project link: https://pexo.ai/project/{project_id}
+Step 4. Notify the user (in the user's language).
+        Your message MUST include these three items:
+        Item 1: Confirmation that the request has been submitted to Pexo.
+        Item 2: Estimated time — 15–20 minutes for a short video.
+        Item 3: Project link — https://pexo.ai/project/{project_id}
 
-Step 5. Wait 60 seconds.
+Step 5. Start polling. Do NOT wait for the user to reply. Execute this
+        loop immediately and continuously after Step 4.
 
-Step 6. Check status.
-        → pexo-project-get.sh <project_id>
-        → Read the nextAction field.
+        5a. Run: sleep 15
+        5b. Run: pexo-project-get.sh <project_id>
+        5c. Read the nextAction field from the returned JSON.
+        5d. Go to Step 6.
 
-Step 7. Based on nextAction:
+Step 6. Act on nextAction:
 
-        WAIT:
-          → Go back to Step 5. Keep polling.
-          → Every 5 minutes, send the user a brief update (in the user's
-            language) that includes the project link:
-            https://pexo.ai/project/{project_id}
-          → ⚠️ NEVER call pexo-chat.sh during WAIT. Sending messages
-            while Pexo is working triggers duplicate video production.
+        If nextAction is "WAIT":
+          → Go back to Step 5a. Keep looping.
+          → Do NOT call pexo-chat.sh during WAIT. This would trigger
+            duplicate video production.
 
-        RESPOND:
-          → Read recentMessages. Process EVERY event (not just the first):
+        If nextAction is "RESPOND":
+          → Read the recentMessages array from the JSON.
+          → Process every event in recentMessages (not just the first one):
 
-            "message" event (Pexo sent text):
-              → Relay the text to the user exactly as-is.
-              → If Pexo is asking a question, WAIT for the user's answer.
+            6a. If event is "message":
+                → Send Pexo's text to the user exactly as-is (in the
+                  user's language if Pexo wrote in a different language).
+                → If Pexo is asking a question, stop and wait for the
+                  user's answer.
+                → After user replies:
+                  Run: pexo-chat.sh <project_id> "USER'S EXACT REPLY"
+                → Go back to Step 5a.
 
-            "preview_video" event (Pexo sent preview options):
-              → Fetch ALL preview URLs via pexo-asset-get.sh.
-              → Show each to the user with labels (A, B, C...).
-              → Ask the user to pick. NEVER pick for them.
+            6b. If event is "preview_video":
+                → For each assetId in the assetIds array:
+                  Run: pexo-asset-get.sh <project_id> <assetId>
+                  Read the "downloadUrl" field from the returned JSON.
+                → Show all preview URLs to the user with labels (A, B, C...).
+                → Ask the user to pick one. NEVER pick for them.
+                → After user picks:
+                  Run: pexo-chat.sh <project_id> "USER'S CHOICE" --choice <selected_asset_id>
+                → Go back to Step 5a.
 
-            "document" event:
-              → Mention the document to the user.
+            6c. If event is "document":
+                → Mention the document to the user.
 
-          → After getting the user's response:
-            pexo-chat.sh <project_id> "USER'S EXACT RESPONSE"
-            (or with --choice <asset_id> for preview selection)
-          → Go back to Step 5.
+        If nextAction is "DELIVER":
+          → Go to Step 7.
 
-        DELIVER:
-          → Find the final_video event in recentMessages. Get the assetId.
-          → pexo-asset-get.sh <project_id> <assetId>
-          → Delivery priority (try in this order):
-            1. If the file is available locally, send it directly to the
-               user as a native file/video message (preferred — best UX).
-            2. ALWAYS also include the complete downloadUrl as text backup
-               (with ALL query parameters, never truncated).
-          → Your delivery message (in the user's language) MUST include:
-            - The video file or download link
-            - Project link: https://pexo.ai/project/{project_id}
-            - Ask if they are satisfied or want revisions
-            - Feedback survey: https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
+        If nextAction is "FAILED":
+          → Go to Step 8.
 
-        FAILED:
-          → Read nextActionHint. Explain the issue in plain language
-            (in the user's language).
-          → Include in your message:
-            - What went wrong (from nextActionHint)
-            - Project link: https://pexo.ai/project/{project_id}
-            - Help guide: https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
-            - Offer to retry
-
-        RECONNECT:
-          → pexo-chat.sh <project_id> "continue"
+        If nextAction is "RECONNECT":
+          → Run: pexo-chat.sh <project_id> "continue"
           → Tell the user (in their language) the connection was
             interrupted and you are reconnecting.
-          → Go back to Step 5.
+          → Go back to Step 5a.
 
-Step 8. Timeout handling.
-        → If you have been polling for more than 30 minutes and nextAction
-          is still WAIT:
-        → Send the user a message (in their language) that includes:
-          - The video is taking longer than expected
-          - Project link: https://pexo.ai/project/{project_id}
-          - Help guide: https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
-          - Ask whether to keep waiting or start over
-        → Stop polling. Wait for user instructions.
+Step 7. Deliver the final video. Execute these sub-steps in order:
+
+        7a. Find the final_video event in recentMessages. Get the assetId.
+        7b. Run: pexo-asset-get.sh <project_id> <assetId>
+        7c. From the returned JSON, read the "downloadUrl" field.
+            ⚠️ Use "downloadUrl", NOT "localPath". Do NOT send any path
+            that starts with / to the user.
+        7d. Send the user a message (in their language) containing:
+            Item 1: The complete downloadUrl as plain text.
+                    Include ALL query parameters (?OSSAccessKeyId=...&Expires=...&Signature=...).
+                    Do NOT truncate. Do NOT wrap in markdown [text](url).
+            Item 2: Project link — https://pexo.ai/project/{project_id}
+            Item 3: Ask if the user is satisfied or wants revisions.
+        7e. Send a SEPARATE follow-up message to the user:
+            "📝 Feedback: https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf"
+            (Translate the word "Feedback" to match the user's language.)
+        7f. Done. If the user wants revisions, go to Workflow B.
+
+Step 8. Handle failure.
+
+        8a. Read the nextActionHint field from the JSON.
+        8b. Send the user a message (in their language) containing:
+            Item 1: What went wrong — explain nextActionHint in plain language.
+            Item 2: Project link — https://pexo.ai/project/{project_id}
+            Item 3: Help guide — https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
+            Item 4: Offer to retry.
+
+Step 9. Timeout.
+        If you have been in the Step 5 loop for more than 30 minutes
+        and nextAction is still "WAIT":
+        → Send the user a message (in their language) containing:
+          Item 1: The video is taking longer than expected.
+          Item 2: Project link — https://pexo.ai/project/{project_id}
+          Item 3: Help guide — https://qcnvqubbtoqj.feishu.cn/wiki/TvbTwzPlwiYVbWkVeHlcX4VVnUf
+          Item 4: Ask whether to keep waiting or start over.
+        → Stop the loop. Wait for user instructions.
 ```
 
 ### Workflow B: User Wants to Revise an Existing Video
 
 ```
 Step 1. Use the same project_id from Workflow A.
-Step 2. Send the user's revision feedback to Pexo exactly as they said it.
-        → pexo-chat.sh <project_id> "USER'S EXACT FEEDBACK"
-Step 3. Go to Workflow A, Step 5 (start polling).
+Step 2. Run: pexo-chat.sh <project_id> "USER'S EXACT FEEDBACK"
+Step 3. Go to Workflow A, Step 5a (start polling loop).
 ```
 
 ### Workflow C: User Provides a File (Image/Video/Audio)
 
 ```
-Step 1. Upload the file.
-        → pexo-upload.sh <project_id> <file_path>
+Step 1. Run: pexo-upload.sh <project_id> <file_path>
         → Save asset_id.
 
 Step 2. Wrap the asset_id in the correct tag:
@@ -227,8 +246,7 @@ Step 2. Wrap the asset_id in the correct tag:
         - Video: <original-video>asset_id</original-video>
         - Audio: <original-audio>asset_id</original-audio>
 
-Step 3. Send to Pexo:
-        → pexo-chat.sh <project_id> "USER'S EXACT WORDS <original-image>asset_id</original-image>"
+Step 3. Run: pexo-chat.sh <project_id> "USER'S EXACT WORDS <original-image>asset_id</original-image>"
 
         NEVER describe the file's visual content in text. Your description
         will be inaccurate and mislead Pexo.
@@ -240,14 +258,13 @@ Step 3. Send to Pexo:
 
 ### Polling Rules
 - During WAIT: ONLY call pexo-project-get.sh. NEVER call pexo-chat.sh. Sending messages while Pexo is working triggers duplicate video production.
-- Poll interval: at least 60 seconds between each pexo-project-get.sh call.
+- Use `sleep 15` between polls. Do NOT poll more frequently than every 15 seconds.
 - Process ALL events in recentMessages, not just the first one.
 
 ### Delivery Rules
-- Try native file/video delivery first (send the local file directly).
-- ALWAYS include the complete downloadUrl as backup, with ALL query parameters (?OSSAccessKeyId=...&Expires=...&Signature=...). Removing any parameter causes 403 Forbidden.
+- Always read the `downloadUrl` field from pexo-asset-get.sh output. NEVER use the `localPath` field. NEVER send any path starting with `/` to the user.
+- Send the complete downloadUrl with ALL query parameters. Removing any parameter causes 403 Forbidden.
 - NEVER wrap the URL in markdown link syntax `[text](url)` — long URLs break on some platforms. Send the raw URL as plain text.
-- NEVER send local file paths (like /tmp/...) to the user.
 - If a URL has expired, re-fetch via pexo-asset-get.sh.
 
 ### Project Rules
@@ -270,7 +287,7 @@ Step 3. Send to Pexo:
 | `pexo-project-get.sh` | `<project_id> [--full-history]` | JSON with `nextAction`, `nextActionHint`, `recentMessages` |
 | `pexo-upload.sh` | `<project_id> <file_path>` | `asset_id` string |
 | `pexo-chat.sh` | `<project_id> <message> [--choice <id>] [--timeout <s>]` | Acknowledgement JSON (async — not a Pexo response) |
-| `pexo-asset-get.sh` | `<project_id> <asset_id>` | Asset JSON with `downloadUrl` |
+| `pexo-asset-get.sh` | `<project_id> <asset_id>` | JSON with `downloadUrl` (use this field) and `localPath` (ignore this field) |
 | `pexo-doctor.sh` | (no args) | Diagnostic report |
 
 ---
